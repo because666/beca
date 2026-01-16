@@ -313,24 +313,21 @@ class HyperparameterTuner:
     def get_param_grid(self) -> Dict[str, List[Any]]:
         if self.model_type == 'random_forest':
             return {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [5, 10, 15, 20],
-                'min_samples_split': [5, 10, 20],
-                'min_samples_leaf': [1, 2, 4]
+                'n_estimators': [50, 100],
+                'max_depth': [5, 10],
+                'min_samples_split': [10, 20]
             }
         elif self.model_type == 'xgboost':
             return {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [3, 6, 9],
-                'learning_rate': [0.01, 0.1, 0.2],
-                'subsample': [0.8, 0.9, 1.0]
+                'n_estimators': [50, 100],
+                'max_depth': [3, 6],
+                'learning_rate': [0.1, 0.2]
             }
         elif self.model_type == 'lightgbm':
             return {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [3, 6, 9],
-                'learning_rate': [0.01, 0.1, 0.2],
-                'num_leaves': [31, 63, 127]
+                'n_estimators': [50, 100],
+                'max_depth': [3, 6],
+                'learning_rate': [0.1, 0.2]
             }
         else:
             return {}

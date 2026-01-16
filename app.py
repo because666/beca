@@ -88,6 +88,27 @@ with st.sidebar:
         value=datetime.strptime(config.DEFAULT_END_DATE, '%Y-%m-%d').date()
     )
     
+    # Auto-load data if exists
+    if 'raw_data' not in st.session_state:
+        data_path = Path("data/stock_data.csv")
+        if data_path.exists():
+            try:
+                fetcher = StockDataFetcher()
+                st.session_state['raw_data'] = fetcher.load_data('stock_data.csv')
+                # logger.info("Auto-loaded stock_data.csv")
+            except Exception as e:
+                logger.error(f"Failed to auto-load data: {e}")
+
+    if 'processed_data' not in st.session_state:
+        processed_path = Path("data/processed_data.csv")
+        if processed_path.exists():
+            try:
+                fetcher = StockDataFetcher()
+                st.session_state['processed_data'] = fetcher.load_data('processed_data.csv')
+                # logger.info("Auto-loaded processed_data.csv")
+            except Exception as e:
+                logger.error(f"Failed to auto-load processed data: {e}")
+
     st.subheader("🎯 模型参数")
     model_type = st.selectbox(
         "选择模型类型",
