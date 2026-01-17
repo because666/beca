@@ -174,27 +174,25 @@ class FeedbackManager:
 
     def _send_email_notification(self, fb_type, content):
         """发送邮件通知"""
-        smtp_server = "smtp.qq.com"
-        smtp_port = 465
-        default_sender = "3694224048@qq.com"
-        sender_email = os.getenv("SMTP_SENDER_EMAIL", default_sender) 
-        sender_password = os.getenv("SMTP_SENDER_PASSWORD", "")
+        # Load config from env
+        smtp_server = os.getenv("SMTP_SERVER", "smtp.qq.com")
+        smtp_port = int(os.getenv("SMTP_PORT", 465))
+        sender_email = os.getenv("SMTP_SENDER_EMAIL")
+        sender_password = os.getenv("SMTP_SENDER_PASSWORD")
+        admin_email = os.getenv("ADMIN_EMAIL", "3694224048@qq.com")
         
-        if not sender_password:
-            try:
-                from dotenv import load_dotenv
-                load_dotenv()
-                sender_password = os.getenv("SMTP_SENDER_PASSWORD", "")
-            except ImportError:
-                pass
+        # Log config status (without revealing password)
+        logger.info(f"Preparing to send email via {smtp_server}:{smtp_port}")
+        logger.info(f"Sender: {sender_email}, Admin: {admin_email}")
         
         if not sender_email or not sender_password:
+            logger.warning("SMTP credentials not configured. Skipping email notification.")
             return
 
         try:
             msg = MIMEMultipart()
             msg['From'] = sender_email
-            msg['To'] = ADMIN_EMAIL
+            msg['To'] = admin_email
             msg['Subject'] = f"【新反馈】{fb_type}"
             
             body = f"""
@@ -206,11 +204,18 @@ class FeedbackManager:
             """
             msg.attach(MIMEText(body, 'plain'))
 
+            logger.info("Connecting to SMTP server...")
             with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                logger.info("Logging in...")
                 server.login(sender_email, sender_password)
+                logger.info("Sending message...")
                 server.send_message(msg)
+            
+            logger.info("Email notification sent successfully")
+        except smtplib.SMTPAuthenticationError:
+            logger.error("SMTP Authentication failed. Check your email and password/app password.")
         except Exception as e:
-            logger.error(f"邮件发送失败: {e}")
+            logger.error(f"Failed to send email: {e}", exc_info=True)
 
     def cleanup_old_data(self, days=7):
         """清理旧数据"""
