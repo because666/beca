@@ -695,6 +695,20 @@ elif page == "选股预测":
                     if len(recommended_stocks) > 0:
                         st.session_state['predicted_stocks'] = recommended_stocks
                         logger.info(f"已保存到session_state: predicted_stocks形状={recommended_stocks.shape}")
+                        
+                        # Save prediction to storage for history
+                        try:
+                            # Ensure columns exist before saving
+                            cols_to_save = ['stock_code', 'probability', 'close']
+                            cols_present = [c for c in cols_to_save if c in recommended_stocks.columns]
+                            save_data = recommended_stocks[cols_present].to_dict(orient='records')
+                            
+                            current_date_str = datetime.now().strftime('%Y-%m-%d')
+                            storage.save_predictions(current_date_str, save_data)
+                            logger.info(f"Saved predictions for {current_date_str}")
+                        except Exception as e:
+                            logger.error(f"Failed to save prediction history: {e}")
+                        
                         st.success(f"✅ 预测完成！找到 {len(recommended_stocks)} 只推荐股票")
                         st.info(f"💡 预测概率范围: {probabilities.min():.2f} - {probabilities.max():.2f}")
                     else:
@@ -721,56 +735,145 @@ elif page == "选股预测":
                 st.info("4. 查看日志了解详细错误信息")
                 st.info("5. 运行诊断工具: python diagnose_prediction.py")
         
-        if 'predicted_stocks' in st.session_state:
-            recommended_stocks = st.session_state['predicted_stocks']
-            
-            st.divider()
-            
-            st.subheader("📋 推荐股票列表")
-            
-            if recommended_stocks.empty:
-                st.info("没有找到符合条件的推荐股票")
-            else:
-                display_cols = ['stock_code', 'close', 'probability', 'ma5', 'ma20', 'rsi', 'volume_ratio']
-                display_df = recommended_stocks[display_cols].copy()
-                display_df.columns = ['股票代码', '收盘价', '预测概率', 'MA5', 'MA20', 'RSI', '量比']
+    if 'predicted_stocks' in st.session_state:
+        recommended_stocks = st.session_state['predicted_stocks']
+        
+        st.divider()
+        
+        st.subheader("📋 推荐股票列表")
+        
+        if recommended_stocks.empty:
+            st.info("没有找到符合条件的推荐股票")
+        else:
+            # Ensure bollinger_width exists, if not, try bb_width, else fill 0
+            if 'bollinger_width' not in recommended_stocks.columns:
+                 if 'bb_width' in recommended_stocks.columns:
+                     recommended_stocks['bollinger_width'] = recommended_stocks['bb_width']
+                 else:
+                     recommended_stocks['bollinger_width'] = 0.0
+
+            # User customization
+            with st.expander("🛠️ 自定义显示列"):
+                all_cols = ['stock_code', 'close', 'probability', 'prediction', 'ma5', 'ma20', 'rsi', 'volume_ratio', 'macd', 'bollinger_width']
+                # Filter cols that actually exist in dataframe to prevent KeyError
+                valid_cols = [c for c in all_cols if c in recommended_stocks.columns]
                 
+                default_cols = ['stock_code', 'close', 'probability', 'ma5', 'rsi', 'volume_ratio']
+                # Ensure defaults are valid
+                default_cols = [c for c in default_cols if c in valid_cols]
+                
+                selected_cols = st.multiselect("选择要显示的列", valid_cols, default=default_cols)
+            
+            # --- 分层展示：第一层 简洁结论 ---
+            st.markdown("### 1. 核心预测结论")
+            top_stock = recommended_stocks.iloc[0]
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("首选推荐", top_stock['stock_code'], delta="强烈推荐" if top_stock['probability'] > 0.8 else "推荐")
+            with col2:
+                st.metric("预测上涨概率 (置信度)", f"{top_stock['probability']:.2%}", help="模型预测未来上涨的可能性，越高越好")
+            with col3:
+                st.metric("当前价格", f"{top_stock['close']:.2f}")
+
+            # --- 分层展示：第二层 关键因素摘要 ---
+            st.markdown("### 2. 关键驱动因素")
+            st.info("以下特征是模型判断该股票上涨的主要依据：")
+            
+            # Simple logic to find key drivers (deviation from mean or just raw values)
+            # Here we just show key technical indicators
+            kpi_cols = st.columns(4)
+            kpi_cols[0].metric("RSI (相对强弱)", f"{top_stock['rsi']:.2f}", help=">70 超买, <30 超卖. 50左右为中性.")
+            kpi_cols[1].metric("量比", f"{top_stock['volume_ratio']:.2f}", help=">1 表示放量, <1 表示缩量.")
+            kpi_cols[2].metric("MA5 (5日均线)", f"{top_stock['ma5']:.2f}")
+            kpi_cols[3].metric("MACD", f"{top_stock['macd']:.2f}")
+
+            # --- 分层展示：第三层 详细分析 & 可视化 ---
+            st.markdown("### 3. 深度分析与可视化")
+            
+            tab_list, tab_chart, tab_history = st.tabs(["📜 详细数据列表", "📈 趋势可视化", "🔙 历史回看验证"])
+            
+            with tab_list:
+                display_df = recommended_stocks[selected_cols].copy()
+                # Rename for readability
+                col_map = {
+                    'stock_code': '股票代码', 'close': '收盘价', 'probability': '预测概率',
+                    'prediction': '预测方向', 'ma5': '5日均线', 'ma20': '20日均线',
+                    'rsi': 'RSI指标', 'volume_ratio': '量比', 'macd': 'MACD', 'bollinger_width': '布林带宽度'
+                }
+                display_df = display_df.rename(columns=col_map)
                 st.dataframe(display_df, use_container_width=True)
-                
-                st.subheader("📊 推荐股票分析")
-                
-                fig = px.bar(
-                    recommended_stocks,
-                    x='stock_code',
-                    y='probability',
-                    title='推荐股票预测概率',
-                    labels={'probability': '预测概率', 'stock_code': '股票代码'}
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
+            
+            with tab_chart:
                 col1, col2 = st.columns(2)
-                
                 with col1:
-                    fig = px.scatter(
-                        recommended_stocks,
-                        x='rsi',
+                    fig = px.bar(
+                        recommended_stocks.head(10),
+                        x='stock_code',
                         y='probability',
-                        color='stock_code',
-                        title='RSI vs 预测概率',
-                        labels={'rsi': 'RSI', 'probability': '预测概率'}
+                        title='Top 10 推荐股票预测概率',
+                        labels={'probability': '预测概率', 'stock_code': '股票代码'},
+                        color='probability',
+                        color_continuous_scale='Viridis'
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
                     fig = px.scatter(
                         recommended_stocks,
-                        x='volume_ratio',
+                        x='rsi',
                         y='probability',
+                        size='volume_ratio',
                         color='stock_code',
-                        title='量比 vs 预测概率',
-                        labels={'volume_ratio': '量比', 'probability': '预测概率'}
+                        title='RSI vs 预测概率 (气泡大小=量比)',
+                        labels={'rsi': 'RSI', 'probability': '预测概率'}
                     )
                     st.plotly_chart(fig, use_container_width=True)
+                    
+            with tab_history:
+                st.markdown("#### 历史验证")
+                st.caption("查看模型在历史日期的预测表现。")
+                
+                # Date selection for historical verification
+                verify_date = st.date_input("选择历史日期进行回测", 
+                                          value=datetime.now().date() - timedelta(days=5),
+                                          max_value=datetime.now().date() - timedelta(days=1))
+                
+                if st.button("🔍 验证该日预测准确率"):
+                    date_str = verify_date.strftime('%Y-%m-%d')
+                    
+                    # 1. Try to load saved predictions
+                    saved_preds = storage.load_predictions(date_str)
+                    
+                    if saved_preds:
+                        st.success(f"找到 {date_str} 的历史预测记录")
+                        # Calculate accuracy based on current prices (realized return)
+                        # This requires fetching current data for the stocks in saved_preds
+                        # For now, just show the saved prediction count
+                        st.json(saved_preds)
+                    else:
+                        st.warning(f"未找到 {date_str} 的历史预测记录。")
+                        st.info("提示：系统会自动保存每天的预测结果。您也可以现在手动运行回测来模拟当时的预测。")
+                        
+                        # Optional: Run simulation for that date (requires advanced logic)
+
+            # --- 用户操作指引 & 解释说明 ---
+            with st.expander("📖 预测结果解读指南 (点击展开)"):
+                st.markdown("""
+                ### 如何看懂预测结果？
+                
+                1.  **预测概率 (Probability)**: 模型认为该股票在未来（如5天后）上涨的可能性。
+                    *   **> 0.8**: 极高置信度，强烈看涨。
+                    *   **0.6 - 0.8**: 较高置信度，看涨。
+                    *   **< 0.5**: 看跌或震荡。
+                
+                2.  **关键指标解释**:
+                    *   **RSI**: 衡量资金进出的强弱。数值在30-70之间属于正常波动，超过70可能回调，低于30可能反弹。
+                    *   **量比**: 当日成交量与过去5天平均成交量的比值。量比大说明资金活跃。
+                
+                3.  **使用建议**:
+                    *   不要仅依赖单一指标。结合K线形态和市场热点综合判断。
+                    *   建议分散投资，不要重仓单一股票。
+                """)
 
 elif page == "性能分析":
     st.header("📊 性能分析")

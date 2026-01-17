@@ -101,5 +101,21 @@ class StorageManager:
             
         return success
 
+    def load_predictions(self, date_str: str) -> Optional[Dict]:
+        """
+        Load historical predictions for a specific date.
+        """
+        key = f"predictions_{date_str}"
+        filepath = Path(f"data/predictions/predictions_{date_str}.json")
+        return self.load_json(filepath, key, None)
+
+    def save_predictions(self, date_str: str, data: Dict) -> bool:
+        """
+        Save predictions for a specific date.
+        """
+        key = f"predictions_{date_str}"
+        filepath = Path(f"data/predictions/predictions_{date_str}.json")
+        return self.save_json(filepath, key, data)
+
 # Global instance
 storage = StorageManager()

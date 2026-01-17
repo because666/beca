@@ -126,6 +126,7 @@ class FeatureEngineer:
             group['bb_mid'] = bb.bollinger_mavg()
             group['bb_low'] = bb.bollinger_lband()
             group['bb_width'] = group['bb_high'] - group['bb_low']
+            group['bollinger_width'] = group['bb_width'] # Alias for consistency
             
             group['atr'] = ta.volatility.average_true_range(high, low, close, window=14)
             
