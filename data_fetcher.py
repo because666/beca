@@ -17,6 +17,44 @@ class StockDataFetcher:
         self.data_dir = Path(data_dir) if data_dir else Path("data")
         self.data_dir.mkdir(exist_ok=True)
 
+    def fetch_stock_data(self, stock_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        try:
+            stock_code_6 = stock_code.zfill(6)
+            
+            df = ak.stock_zh_a_hist(
+                symbol=stock_code_6,
+                period="daily",
+                start_date=start_date.replace('-', ''),
+                end_date=end_date.replace('-', ''),
+                adjust="qfq"
+            )
+            
+            if df.empty:
+                logger.warning(f"No data found for stock {stock_code}")
+                return None
+            
+            df['stock_code'] = stock_code
+            df['date'] = pd.to_datetime(df['日期'])
+            df = df.rename(columns={
+                '开盘': 'open',
+                '收盘': 'close',
+                '最高': 'high',
+                '最低': 'low',
+                '成交量': 'volume',
+                '成交额': 'amount',
+                '振幅': 'amplitude',
+                '涨跌幅': 'pct_change',
+                '涨跌额': 'change',
+                '换手率': 'turnover'
+            })
+            
+            df = df.sort_values('date').reset_index(drop=True)
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching data for {stock_code}: {e}")
+            return None
+
     def fetch_fundamental_data(self, stock_code: str) -> Optional[pd.DataFrame]:
         """
         Fetch fundamental data (PE, PB, Market Cap, etc.)
