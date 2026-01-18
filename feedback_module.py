@@ -362,6 +362,13 @@ def show_feedback_page():
                 contact = st.text_input("联系方式 (选填)", placeholder="邮箱或QQ，仅用于回复")
             content = st.text_area("反馈内容 (必填)", height=150)
             
+            st.markdown("""
+            <div style='display: flex; align-items: center; gap: 8px; margin-top: 15px; margin-bottom: 5px;'>
+                <span style='font-size: 20px;'>😊</span>
+                <span style='font-size: 14px; color: #666666;'>你们的反馈我真的可以收到，请认真填写，不要发送猎奇文案或无意义内容</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
             # Simple Captcha
             if 'captcha_num1' not in st.session_state:
                 st.session_state['captcha_num1'] = 3
