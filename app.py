@@ -62,6 +62,7 @@ if ga_id:
     )
 
 st.title("📈 基于机器学习的量化投资选股系统")
+logger.info("Application started successfully.")
 
 st.markdown("""
 本系统使用机器学习算法构建量化投资选股模型，提供股票数据获取与处理、选股策略回测与评估等功能。
