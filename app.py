@@ -563,14 +563,30 @@ elif page == "策略回测":
             
             if 'benchmark_data' in results:
                 bench = results['benchmark_data']
-                merged = pd.merge(portfolio, bench[['date', 'close']], on='date', how='left')
-                merged['close'] = merged['close'].ffill()
-                if not merged['close'].isna().all():
-                    start_p = merged['value'].iloc[0]
-                    start_b = merged['close'].iloc[0]
-                    merged['bench_val'] = merged['close'] / start_b * start_p
-                    
-                    fig.add_trace(go.Scatter(
+                # Fix: Merge using the same datetime format/type
+                # Ensure date columns are datetime objects
+                portfolio['date'] = pd.to_datetime(portfolio['date'])
+                bench['date'] = pd.to_datetime(bench['date'])
+                
+                # We need to reconstruct benchmark value from returns
+                # Start with portfolio initial value
+                if 'market_return' in bench.columns:
+                     bench = bench.sort_values('date')
+                     # Filter bench to match portfolio dates range
+                     start_date = portfolio['date'].min()
+                     bench = bench[bench['date'] >= start_date]
+                     
+                     # Calculate cumulative return series
+                     initial_value = portfolio['value'].iloc[0]
+                     
+                     # Reindex to match portfolio dates to handle missing trading days
+                     merged = pd.merge(portfolio[['date']], bench[['date', 'market_return']], on='date', how='left')
+                     merged['market_return'] = merged['market_return'].fillna(0)
+                     
+                     # Calculate value curve
+                     merged['bench_val'] = initial_value * (1 + merged['market_return']).cumprod()
+                     
+                     fig.add_trace(go.Scatter(
                         x=merged['date'],
                         y=merged['bench_val'],
                         mode='lines',
