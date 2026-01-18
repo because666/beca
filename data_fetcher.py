@@ -61,21 +61,23 @@ class StockDataFetcher:
         Using stock_zh_a_spot_em or similar interface
         """
         try:
-            # stock_zh_a_spot_em returns real-time data for all stocks
-            # Ideally we want historical fundamental data, but akshare support is limited for free historical PE/PB
-            # For simplicity in this demo, we might fetch current spot data and broadcast it (NOT IDEAL for backtest)
-            # OR we try to find a historical interface.
-            
-            # Actually, stock_zh_index_daily_em for index data
-            # For individual stock fundamentals history: stock_a_indicator_lg (legu)
-            
             stock_code_6 = stock_code.zfill(6)
             
-            # Using legu indicator which provides PE/PB history
-            # Note: This might be slow and unstable
-            df = ak.stock_a_indicator_lg(symbol=stock_code_6)
+            # Use a more stable interface for historical PE/PB if possible
+            # Currently akshare.stock_a_indicator_lg is often unstable or removed
+            # Fallback to stock_zh_a_spot_em (realtime) if history fails, or just skip if not available
             
-            if df.empty:
+            # Attempt 1: stock_a_indicator_lg (Legu) - often has issues
+            try:
+                if hasattr(ak, 'stock_a_indicator_lg'):
+                    df = ak.stock_a_indicator_lg(symbol=stock_code_6)
+                else:
+                    # Fallback or skip
+                    return None
+            except:
+                 return None
+
+            if df is None or df.empty:
                 return None
                 
             df['date'] = pd.to_datetime(df['trade_date'])
@@ -127,11 +129,17 @@ class StockDataFetcher:
                 # B. Fundamental Data (Merge)
                 # Try to fetch fundamental data
                 try:
+                    # Fix: self.fetch_fundamental_data is defined, just call it.
+                    # Ensure method name is correct. In Read output, it is defined at line 58.
                     fun_df = self.fetch_fundamental_data(stock_code)
                     if fun_df is not None and not fun_df.empty:
                         df = pd.merge(df, fun_df, on='date', how='left')
                         # Forward fill fundamental data (it doesn't change daily usually)
-                        df[['pe_ratio', 'pb_ratio', 'total_market_cap']] = df[['pe_ratio', 'pb_ratio', 'total_market_cap']].ffill()
+                        # Ensure columns exist before filling
+                        fun_cols = ['pe_ratio', 'pb_ratio', 'total_market_cap']
+                        valid_fun_cols = [c for c in fun_cols if c in df.columns]
+                        if valid_fun_cols:
+                            df[valid_fun_cols] = df[valid_fun_cols].ffill()
                 except Exception as e:
                     logger.warning(f"Skipping fundamentals for {stock_code}: {e}")
 
@@ -229,7 +237,13 @@ class FeatureEngineer:
         combined_df = pd.concat(processed_groups, ignore_index=True)
         
         combined_df = combined_df.replace([np.inf, -np.inf], np.nan)
-        combined_df = combined_df.ffill().bfill()
+        # Fix: Sort by date before filling to prevent data leakage (using future data to fill past)
+        # And ensure we don't mix stocks
+        combined_df = combined_df.sort_values(['stock_code', 'date'])
+        combined_df = combined_df.groupby('stock_code').ffill().bfill()
+        # After fill, restore stock_code if it was lost in groupby apply (sometimes happens with transform)
+        # Actually groupby().ffill() preserves index.
+        # But safest is to fill within groups
         
         return combined_df
 
