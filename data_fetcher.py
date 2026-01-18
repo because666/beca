@@ -17,50 +17,90 @@ class StockDataFetcher:
         self.data_dir = Path(data_dir) if data_dir else Path("data")
         self.data_dir.mkdir(exist_ok=True)
 
-    def fetch_stock_data(self, stock_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+    def fetch_fundamental_data(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        Fetch fundamental data (PE, PB, Market Cap, etc.)
+        Using stock_zh_a_spot_em or similar interface
+        """
         try:
+            # stock_zh_a_spot_em returns real-time data for all stocks
+            # Ideally we want historical fundamental data, but akshare support is limited for free historical PE/PB
+            # For simplicity in this demo, we might fetch current spot data and broadcast it (NOT IDEAL for backtest)
+            # OR we try to find a historical interface.
+            
+            # Actually, stock_zh_index_daily_em for index data
+            # For individual stock fundamentals history: stock_a_indicator_lg (legu)
+            
             stock_code_6 = stock_code.zfill(6)
             
-            df = ak.stock_zh_a_hist(
-                symbol=stock_code_6,
-                period="daily",
-                start_date=start_date.replace('-', ''),
-                end_date=end_date.replace('-', ''),
-                adjust="qfq"
-            )
+            # Using legu indicator which provides PE/PB history
+            # Note: This might be slow and unstable
+            df = ak.stock_a_indicator_lg(symbol=stock_code_6)
             
             if df.empty:
-                logger.warning(f"No data found for stock {stock_code}")
                 return None
-            
-            df['stock_code'] = stock_code
-            df['date'] = pd.to_datetime(df['日期'])
+                
+            df['date'] = pd.to_datetime(df['trade_date'])
             df = df.rename(columns={
-                '开盘': 'open',
-                '收盘': 'close',
-                '最高': 'high',
-                '最低': 'low',
-                '成交量': 'volume',
-                '成交额': 'amount',
-                '振幅': 'amplitude',
-                '涨跌幅': 'pct_change',
-                '涨跌额': 'change',
-                '换手率': 'turnover'
+                'pe': 'pe_ratio',
+                'pb': 'pb_ratio',
+                'ps': 'ps_ratio',
+                'total_mv': 'total_market_cap'
             })
+            # Select relevant cols
+            cols = ['date', 'pe_ratio', 'pb_ratio', 'total_market_cap']
+            # Filter cols that exist
+            cols = [c for c in cols if c in df.columns]
             
-            df = df.sort_values('date').reset_index(drop=True)
-            return df
+            return df[cols].sort_values('date')
             
         except Exception as e:
-            logger.error(f"Error fetching data for {stock_code}: {e}")
+            logger.warning(f"Error fetching fundamental data for {stock_code}: {e}")
+            return None
+
+    def fetch_index_data(self, start_date: str, end_date: str, index_code: str = "000001") -> Optional[pd.DataFrame]:
+        """
+        Fetch market index data (e.g. ShangHai Index)
+        """
+        try:
+            df = ak.stock_zh_index_daily_em(symbol="sh" + index_code, start_date=start_date.replace('-', ''), end_date=end_date.replace('-', ''))
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.rename(columns={'close': 'index_close'})
+            
+            # Calculate index return
+            df['market_return'] = df['index_close'].pct_change()
+            
+            return df[['date', 'market_return']]
+        except Exception as e:
+            logger.warning(f"Error fetching index data: {e}")
             return None
 
     def fetch_multiple_stocks(self, stock_codes: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         all_data = []
         
+        # 1. Fetch index data first (common for all)
+        index_df = self.fetch_index_data(start_date, end_date)
+        
         for stock_code in tqdm(stock_codes, desc="Fetching stock data"):
+            # A. Basic Price Data
             df = self.fetch_stock_data(stock_code, start_date, end_date)
+            
             if df is not None:
+                # B. Fundamental Data (Merge)
+                # Try to fetch fundamental data
+                try:
+                    fun_df = self.fetch_fundamental_data(stock_code)
+                    if fun_df is not None and not fun_df.empty:
+                        df = pd.merge(df, fun_df, on='date', how='left')
+                        # Forward fill fundamental data (it doesn't change daily usually)
+                        df[['pe_ratio', 'pb_ratio', 'total_market_cap']] = df[['pe_ratio', 'pb_ratio', 'total_market_cap']].ffill()
+                except Exception as e:
+                    logger.warning(f"Skipping fundamentals for {stock_code}: {e}")
+
+                # C. Index Data (Merge)
+                if index_df is not None:
+                    df = pd.merge(df, index_df, on='date', how='left')
+                
                 all_data.append(df)
         
         if all_data:

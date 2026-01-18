@@ -745,7 +745,7 @@ elif page == "选股预测":
         if recommended_stocks.empty:
             st.info("没有找到符合条件的推荐股票")
         else:
-            # Ensure bollinger_width exists, if not, try bb_width, else fill 0
+            # Ensure bollinger_width exists
             if 'bollinger_width' not in recommended_stocks.columns:
                  if 'bb_width' in recommended_stocks.columns:
                      recommended_stocks['bollinger_width'] = recommended_stocks['bb_width']
@@ -754,11 +754,15 @@ elif page == "选股预测":
 
             # User customization
             with st.expander("🛠️ 自定义显示列"):
-                all_cols = ['stock_code', 'close', 'probability', 'prediction', 'ma5', 'ma20', 'rsi', 'volume_ratio', 'macd', 'bollinger_width']
+                # Add fundamental cols to options
+                all_cols = ['stock_code', 'close', 'probability', 'prediction', 
+                           'pe_ratio', 'pb_ratio', 'total_market_cap',
+                           'ma5', 'ma20', 'rsi', 'volume_ratio', 'macd', 'bollinger_width']
+                
                 # Filter cols that actually exist in dataframe to prevent KeyError
                 valid_cols = [c for c in all_cols if c in recommended_stocks.columns]
                 
-                default_cols = ['stock_code', 'close', 'probability', 'ma5', 'rsi', 'volume_ratio']
+                default_cols = ['stock_code', 'close', 'probability', 'pe_ratio', 'rsi', 'volume_ratio']
                 # Ensure defaults are valid
                 default_cols = [c for c in default_cols if c in valid_cols]
                 
@@ -779,13 +783,20 @@ elif page == "选股预测":
             st.markdown("### 2. 关键驱动因素")
             st.info("以下特征是模型判断该股票上涨的主要依据：")
             
-            # Simple logic to find key drivers (deviation from mean or just raw values)
-            # Here we just show key technical indicators
             kpi_cols = st.columns(4)
             kpi_cols[0].metric("RSI (相对强弱)", f"{top_stock['rsi']:.2f}", help=">70 超买, <30 超卖. 50左右为中性.")
             kpi_cols[1].metric("量比", f"{top_stock['volume_ratio']:.2f}", help=">1 表示放量, <1 表示缩量.")
-            kpi_cols[2].metric("MA5 (5日均线)", f"{top_stock['ma5']:.2f}")
-            kpi_cols[3].metric("MACD", f"{top_stock['macd']:.2f}")
+            
+            # Show PE if available
+            if 'pe_ratio' in top_stock and pd.notna(top_stock['pe_ratio']):
+                 kpi_cols[2].metric("市盈率 (PE)", f"{top_stock['pe_ratio']:.1f}", help="越低通常越有价值，但需结合行业看")
+            else:
+                 kpi_cols[2].metric("MA5", f"{top_stock['ma5']:.2f}")
+                 
+            if 'market_return' in top_stock and pd.notna(top_stock['market_return']):
+                kpi_cols[3].metric("大盘趋势", f"{top_stock['market_return']:.2%}", delta_color="normal")
+            else:
+                kpi_cols[3].metric("MACD", f"{top_stock['macd']:.2f}")
 
             # --- 分层展示：第三层 详细分析 & 可视化 ---
             st.markdown("### 3. 深度分析与可视化")
@@ -798,7 +809,8 @@ elif page == "选股预测":
                 col_map = {
                     'stock_code': '股票代码', 'close': '收盘价', 'probability': '预测概率',
                     'prediction': '预测方向', 'ma5': '5日均线', 'ma20': '20日均线',
-                    'rsi': 'RSI指标', 'volume_ratio': '量比', 'macd': 'MACD', 'bollinger_width': '布林带宽度'
+                    'rsi': 'RSI指标', 'volume_ratio': '量比', 'macd': 'MACD', 'bollinger_width': '布林带宽度',
+                    'pe_ratio': '市盈率(PE)', 'pb_ratio': '市净率(PB)', 'total_market_cap': '总市值'
                 }
                 display_df = display_df.rename(columns=col_map)
                 st.dataframe(display_df, use_container_width=True)
