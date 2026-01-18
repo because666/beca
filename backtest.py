@@ -130,47 +130,54 @@ class BacktestEngine:
         buy_rejected_threshold = 0
         
         # Use itertuples for faster iteration
-        for row in tqdm(sim_df.itertuples(), total=len(sim_df), desc="Running backtest"):
-            date = row.date
-            stock_code = row.stock_code
-            close_price = row.close
-            prediction = row.prediction
-            probability = row.probability
+        # Refactor: Iterate by date to ensure portfolio value is updated once per day
+        unique_dates = sim_df['date'].sort_values().unique()
+        
+        for date in tqdm(unique_dates, desc="Running backtest"):
+            # Get all stocks for this date
+            day_data = sim_df[sim_df['date'] == date]
+            
+            # Process trading signals for each stock
+            for row in day_data.itertuples():
+                stock_code = row.stock_code
+                close_price = row.close
+                prediction = row.prediction
+                probability = row.probability
 
-            # Handle existing positions
-            if stock_code in self.positions:
-                should_sell, sell_reason = self._check_sell_conditions(
-                    stock_code, date, close_price, probability
-                )
-                
-                if should_sell:
-                    self.sell_stock(stock_code, close_price, date, probability)
-                    sell_signals += 1
-                    if self.debug_mode and sell_signals % 100 == 0: # Reduce log spam
-                        logger.info(f"[卖出] {date.date()} {stock_code} 原因: {sell_reason}")
-                    elif self.debug_mode and sell_signals < 10: # Log first few trades
-                         logger.info(f"[卖出] {date.date()} {stock_code} 原因: {sell_reason}")
+                # Handle existing positions
+                if stock_code in self.positions:
+                    should_sell, sell_reason = self._check_sell_conditions(
+                        stock_code, date, close_price, probability
+                    )
+                    
+                    if should_sell:
+                        self.sell_stock(stock_code, close_price, date, probability)
+                        sell_signals += 1
+                        if self.debug_mode and sell_signals % 100 == 0: 
+                            logger.info(f"[卖出] {pd.to_datetime(date).date()} {stock_code} 原因: {sell_reason}")
+                        elif self.debug_mode and sell_signals < 10: 
+                             logger.info(f"[卖出] {pd.to_datetime(date).date()} {stock_code} 原因: {sell_reason}")
 
-            # Handle buy signals
-            # Only buy if we don't hold it (or you can add logic to add to position)
-            # Relaxed condition: rely on probability threshold, ignore hard prediction label
-            if probability > self.buy_threshold and stock_code not in self.positions:
-                status, reason = self._check_buy_conditions(close_price)
-                
-                if status == 'ok':
-                    self.buy_stock(stock_code, close_price, date, probability)
-                    buy_signals += 1
-                    if self.debug_mode and buy_signals % 100 == 0:
-                         logger.info(f"[买入] {date.date()} {stock_code} 价格:{close_price:.2f} 概率:{probability:.4f}")
-                    elif self.debug_mode and buy_signals < 10:
-                         logger.info(f"[买入] {date.date()} {stock_code} 价格:{close_price:.2f} 概率:{probability:.4f}")
+                # Handle buy signals
+                if probability > self.buy_threshold and stock_code not in self.positions:
+                    status, reason = self._check_buy_conditions(close_price)
+                    
+                    if status == 'ok':
+                        self.buy_stock(stock_code, close_price, date, probability)
+                        buy_signals += 1
+                        if self.debug_mode and buy_signals % 100 == 0:
+                             logger.info(f"[买入] {pd.to_datetime(date).date()} {stock_code} 价格:{close_price:.2f} 概率:{probability:.4f}")
+                        elif self.debug_mode and buy_signals < 10:
+                             logger.info(f"[买入] {pd.to_datetime(date).date()} {stock_code} 价格:{close_price:.2f} 概率:{probability:.4f}")
 
-                elif status == 'rejected_cash':
-                    buy_rejected_cash += 1
-                elif status == 'rejected_position':
-                    buy_rejected_position += 1
-
-            self.update_portfolio_value(date, close_price, df[df['date'] == date])
+                    elif status == 'rejected_cash':
+                        buy_rejected_cash += 1
+                    elif status == 'rejected_position':
+                        buy_rejected_position += 1
+            
+            # End of day: Update portfolio value
+            # Pass day_data which contains all stocks for this day
+            self.update_portfolio_value(date, None, day_data)
         
         self.close_all_positions(df)
         
