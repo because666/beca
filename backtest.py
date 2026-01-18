@@ -36,6 +36,8 @@ class BacktestEngine:
         self.trades: List[Dict[str, Any]] = []
         self.portfolio_value: List[Dict[str, Any]] = []
         self.benchmark_value: List[float] = []
+        self.trailing_stops: Dict[str, float] = {} # Store highest price for each position
+        self.trailing_stop_pct = 0.05 # Default trailing stop percentage (5%)
         self.debug_mode = True
 
     def _validate_params(self, initial_cash, commission, slippage, buy_threshold, sell_threshold,
@@ -183,6 +185,21 @@ class BacktestEngine:
         days_held = (date - position['entry_date']).days
         current_return = (close_price - position['entry_price']) / position['entry_price']
         
+        # Update trailing stop high water mark
+        if stock_code not in self.trailing_stops:
+            self.trailing_stops[stock_code] = close_price
+        else:
+            self.trailing_stops[stock_code] = max(self.trailing_stops[stock_code], close_price)
+            
+        # Check trailing stop
+        high_price = self.trailing_stops[stock_code]
+        drawdown_from_high = (high_price - close_price) / high_price
+        
+        # Only trigger trailing stop if we are in profit overall (optional, but good practice)
+        # Or strictly follow the rule: if price drops X% from peak, sell.
+        if drawdown_from_high >= self.trailing_stop_pct and current_return > 0:
+             return True, f"触发移动止盈(回撤{drawdown_from_high:.1%})"
+        
         if days_held >= self.max_hold_days:
             return True, f"达到最大持仓天数({days_held}天)"
         elif current_return <= -self.stop_loss_threshold:
@@ -200,6 +217,26 @@ class BacktestEngine:
             return 'rejected_position', f"持仓已满({len(self.positions)}/{self.max_positions})"
             
         return 'ok', ""
+        
+    def calculate_position_size(self, probability: float, price: float) -> int:
+        """
+        Calculate position size based on Kelly Criterion or Probability Scaling.
+        Simplified Kelly: f = p - q (where p is win prob, q is loss prob)
+        Here we scale max_position_pct based on probability confidence.
+        """
+        # Base scale: linearly map probability 0.5-0.8 to 0.5-1.0 of max_position_pct
+        # If prob < 0.5, we shouldn't be buying anyway
+        
+        scale_factor = min(1.0, max(0.5, (probability - 0.5) / 0.3 * 0.5 + 0.5))
+        # Example: 
+        # prob=0.5 -> scale=0.5 (Half position)
+        # prob=0.65 -> scale=0.75
+        # prob=0.8 -> scale=1.0 (Full position)
+        
+        target_pct = self.max_position_pct * scale_factor
+        max_val = self.cash * target_pct
+        
+        return int(max_val / (price * (1 + self.slippage)))
 
     def _log_statistics(self, buy_signals, sell_signals, buy_rejected_cash, 
                        buy_rejected_position, buy_rejected_threshold):
@@ -221,8 +258,8 @@ class BacktestEngine:
         if self.cash <= 0:
             return
 
-        max_position_value = self.cash * self.max_position_pct
-        shares = int(max_position_value / (price * (1 + self.slippage)))
+        # Use dynamic position sizing
+        shares = self.calculate_position_size(probability, price)
         
         if shares > 0:
             actual_price = price * (1 + self.slippage)
@@ -236,6 +273,9 @@ class BacktestEngine:
                     'entry_date': date,
                     'probability': probability
                 }
+                
+                # Init trailing stop
+                self.trailing_stops[stock_code] = actual_price
                 
                 self.trades.append({
                     'date': date,

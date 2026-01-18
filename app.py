@@ -416,6 +416,16 @@ elif page == "策略回测":
             )
             st.caption("💡 建议：保守策略使用5%-10%，平衡策略使用10%-15%，激进策略使用15%-25%")
             
+            trailing_stop_pct = st.number_input(
+                "移动止盈回撤阈值 (%)",
+                min_value=0.01,
+                max_value=0.30,
+                value=0.08,
+                step=0.01,
+                format="%.2f",
+                help="当价格从持仓期间最高点回落超过此比例时卖出止盈"
+            )
+            
             st.markdown("### 持仓管理")
             max_hold_days = st.number_input(
                 "最大持仓天数",
@@ -480,6 +490,7 @@ elif page == "策略回测":
                     max_position_pct=max_position_pct / 100,
                     max_positions=max_positions
                 )
+                backtest_engine.trailing_stop_pct = trailing_stop_pct
                 
                 results = backtest_engine.run_backtest(
                     df,
@@ -488,6 +499,15 @@ elif page == "策略回测":
                     start_date=backtest_start.strftime('%Y-%m-%d'),
                     end_date=backtest_end.strftime('%Y-%m-%d')
                 )
+                
+                # Fetch benchmark
+                try:
+                    fetcher = StockDataFetcher()
+                    index_df = fetcher.fetch_index_data(backtest_start.strftime('%Y-%m-%d'), backtest_end.strftime('%Y-%m-%d'), "000300")
+                    if index_df is not None:
+                        results['benchmark_data'] = index_df
+                except Exception as e:
+                    logger.warning(f"Could not fetch benchmark: {e}")
                 
                 st.session_state['backtest_results'] = results
                 
@@ -540,6 +560,24 @@ elif page == "策略回测":
                 name='策略资金',
                 line=dict(color='blue', width=2)
             ))
+            
+            if 'benchmark_data' in results:
+                bench = results['benchmark_data']
+                merged = pd.merge(portfolio, bench[['date', 'close']], on='date', how='left')
+                merged['close'] = merged['close'].ffill()
+                if not merged['close'].isna().all():
+                    start_p = merged['value'].iloc[0]
+                    start_b = merged['close'].iloc[0]
+                    merged['bench_val'] = merged['close'] / start_b * start_p
+                    
+                    fig.add_trace(go.Scatter(
+                        x=merged['date'],
+                        y=merged['bench_val'],
+                        mode='lines',
+                        name='基准(沪深300)',
+                        line=dict(color='gray', width=1, dash='dot')
+                    ))
+
             fig.update_layout(
                 title='资金曲线',
                 xaxis_title='日期',
